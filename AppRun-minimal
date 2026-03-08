@@ -1,0 +1,13 @@
+#!/bin/bash
+# Determine the directory where the AppImage is mounted (or extracted)
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Set the library path to include the AppImage's lib directory
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+
+# Optional: set paths for specific frameworks like Qt plugins
+# export QT_PLUGIN_PATH="${HERE}/usr/lib/plugins"
+
+# Execute the main application
+EXEC="/usr/bin/xarchiver"
+exec "${HERE}${EXEC}" "$@"

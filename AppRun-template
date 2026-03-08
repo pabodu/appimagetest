@@ -1,0 +1,20 @@
+#!/bin/bash
+set -x
+EXEC="${1}"; shift
+
+CNT_SETUP=( bwrap
+--unshare-user
+--uid 0
+--gid 0
+--unshare-pid
+--overlay-src ${APPDIR}
+--tmp-overlay /
+--proc /proc
+--dev-bind /dev /dev
+--bind /sys /sys
+--bind /run /run
+--bind /home /home
+--tmpfs /tmp
+)
+
+exec "${CNT_SETUP[@]}" "${EXEC}" "$@"

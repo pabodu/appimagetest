@@ -1,0 +1,2 @@
+DEBIAN_FRONTEND=noninteractive apt-get install -y debootstrap >/dev/null 2>&1
+debootstrap --variant=minbase trixie /overlay/base >/dev/null 2>&1
