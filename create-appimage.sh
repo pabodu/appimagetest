@@ -31,72 +31,24 @@ function umount_dir
     done &&\
     return 0
 }
+function interactive_chroot_install
+{
+    local PROMPT="$1"
+    message "Starting bash session in /overlay/merged chroot..."
+    chroot /overlay/merged /bin/bash --rcfile <(echo "PROMPT_COMMAND='history -a'"; echo "PS1='\u@${PROMPT} \w\$ '") -i
+    message "Returned to the host from /overlay/merged..."
+    if [ -f /overlay/merged/root/.bash_history ]; then
+        cat /overlay/merged/root/.bash_history | grep -v "^exit"
+        read -p "Append contents of .bash_history to overrides/install? [y/n] " reply
+        [ "$reply" == "y" ] && cat /overlay/merged/root/.bash_history | grep -v "^exit" >> overrides/install
+    fi
+}
 message "Setting up build container..."
 apt-get update >/dev/null 2>&1
 DEBIAN_FRONTEND=noninteractive apt-get -y install vim.tiny dialog fuse3 file make bubblewrap >/dev/null 2>&1
 mkdir /overlay && mount -t tmpfs -o size=${OVERLAY_TMPFS_SIZE} tmpfs /overlay
 mkdir /overlay/{base,package,work,merged}
-message "Creating base..."
-cd "${PACKAGE}"
-while true; do
-    if [ ! -f overrides/set_up_base ]; then
-        # This could go into overrides/set_up_base
-        #DEBIAN_FRONTEND=noninteractive apt-get install -y debootstrap >/dev/null 2>&1
-        #debootstrap --variant=minbase trixie /overlay/base >/dev/null 2>&1
-
-        echo "mount -o bind,ro / /overlay/base" > overrides/set_up_base
-    fi
-
-    [ -n "$AUTOMATIC" ] && break
-
-    echo "set_up_base:"
-    cat overrides/set_up_base
-    read -p "Is it what you want? [y/n] " reply
-    [ "$reply" == "y" ] && break
-    message "Running subshell..."
-    /bin/bash --rcfile <(echo "PS1='set_up_base> '") -i
-done
-[ -n "$AUTOMATIC" ] && echo "Using set_up_base:" && cat overrides/set_up_base
-source overrides/set_up_base
-mount -t overlay overlay -o userxattr,lowerdir=/overlay/base,upperdir=/overlay/package,workdir=/overlay/work /overlay/merged
-mount --rbind /dev /overlay/merged/dev
-mount --rbind /dev/pts /overlay/merged/dev/pts
-mount --rbind /run /overlay/merged/run
-mount --rbind /proc /overlay/merged/proc
-mount --rbind /tmp /overlay/merged/tmp
-message "Starting main installation..."
-cd "${PACKAGE}"
-mkdir /overlay/merged/package
-mount --bind "${PACKAGE}" /overlay/merged/package
-while true; do
-    [ ! -f overrides/install ] && touch overrides/install
-
-    [ -n "$AUTOMATIC" ] && break
-
-    echo "install:"
-    cat overrides/install
-    read -p "Is it what you want? [y/n] " reply
-    [ "$reply" == "y" ] && break
-    message "Running shell in /overlay/merged..."
-    chroot /overlay/merged /bin/bash --rcfile <(echo "PROMPT_COMMAND='history -a'"; echo "PS1='\u@appimage \w\$ '") -i
-    message "Returned to the host from /overlay/merged..."
-    if [ -f /overlay/merged/root/.bash_history ]; then
-        cat /overlay/merged/root/.bash_history 
-        read -p "Append contents of .bash_history to overrides/install? [y/n] " reply
-        [ "$reply" == "y" ] && cat /overlay/merged/root/.bash_history >> overrides/install
-    fi
-    message "Running subshell..."
-    /bin/bash --rcfile <(echo "PS1='install> '") -i
-done
-[ -n "$AUTOMATIC" ] && echo "Using install:" && cat overrides/install
-chroot /overlay/merged /bin/bash /package/overrides/install
-[ -z "$AUTOMATIC" ] && message "Chroot /overlay/merged testing point reached"
-[ -z "$AUTOMATIC" ] && read -p "Press any key when ready to proceed " junk
-umount_dir /overlay/merged/proc
-umount_dir /overlay/merged/dev/pts
-umount_dir /overlay/merged/dev
-umount_dir /overlay/merged/run
-umount_dir /overlay/merged/tmp
+# APPDIR ---------------------------------------------------------------------------------------------
 cd "${PACKAGE}"
 while true; do
     if [ -f overrides/APPDIR ]; then
@@ -125,6 +77,62 @@ while true; do
     rm -f overrides/APPDIR
 done
 [ -n "$AUTOMATIC" ] && echo "Using APPDIR:" && cat overrides/APPDIR
+# APPDIR ---------------------------------------------------------------------------------------------
+# set_up_base ------------------------------------------------------------------------------------------------
+message "Creating base..."
+cd "${PACKAGE}"
+while true; do
+    if [ ! -f overrides/set_up_base ]; then
+        # This could go into overrides/set_up_base
+        #DEBIAN_FRONTEND=noninteractive apt-get install -y debootstrap >/dev/null 2>&1
+        #debootstrap --variant=minbase trixie /overlay/base >/dev/null 2>&1
+
+        echo "mount -o bind,ro / /overlay/base" > overrides/set_up_base
+    fi
+
+    [ -n "$AUTOMATIC" ] && break
+
+    echo "set_up_base:"
+    cat overrides/set_up_base
+    read -p "Is it what you want? [y/n] " reply
+    [ "$reply" == "y" ] && break
+    message "Running subshell..."
+    /bin/bash --rcfile <(echo "PS1='set_up_base> '") -i
+done
+[ -n "$AUTOMATIC" ] && echo "Using set_up_base:" && cat overrides/set_up_base
+source overrides/set_up_base
+# set_up_base ------------------------------------------------------------------------------------------------
+mount -t overlay overlay -o userxattr,lowerdir=/overlay/base,upperdir=/overlay/package,workdir=/overlay/work /overlay/merged
+mount --rbind /dev /overlay/merged/dev
+mount --rbind /dev/pts /overlay/merged/dev/pts
+mount --rbind /run /overlay/merged/run
+mount --rbind /proc /overlay/merged/proc
+mount --rbind /tmp /overlay/merged/tmp
+# install ----------------------------------------------------------------------------------------------
+message "Starting main installation..."
+cd "${PACKAGE}"
+mkdir /overlay/merged/package
+mount --bind "${PACKAGE}" /overlay/merged/package
+while true; do
+    while true; do
+        [ ! -f overrides/install ] && touch overrides/install
+
+        [ -n "$AUTOMATIC" ] && break
+
+        echo "install:"
+        cat overrides/install
+        read -p "Is it what you want? [y/n] " reply
+        [ "$reply" == "y" ] && break
+        interactive_chroot_install appimage
+        message "Running subshell..."
+        /bin/bash --rcfile <(echo "PS1='install> '") -i
+    done
+    [ -n "$AUTOMATIC" ] && echo "Using install:" && cat overrides/install
+    chroot /overlay/merged /bin/bash /package/overrides/install
+    [ $? -eq 0 ] && break
+done
+# install ----------------------------------------------------------------------------------------------
+# cleanup --------------------------------------------------------------------------------------------
 message "Cleaning up..."
 cd "${PACKAGE}"
 while true; do
@@ -155,24 +163,29 @@ done
 [ -n "$AUTOMATIC" ] && echo "Using cleanup:" && cat overrides/cleanup
 cd /overlay/merged
 source package/overrides/cleanup
+# cleanup --------------------------------------------------------------------------------------------
 cd "${PACKAGE}"
-if [ "$APPDIR" == "/overlay/merged" ]; then
-    if [ -n "$AUTOMATIC" ]; then
-        APPDIR="$APPDIR" make
-    else
-        APPDIR="$APPDIR" /bin/bash --rcfile <(echo "PS1='finalize (merged)> '") -i
-    fi
+if [ -z "$AUTOMATIC" ]; then
+    message "Chroot /overlay/merged testing point reached"
+    interactive_chroot_install testing_merged
 fi
-cd "${PACKAGE}"
+
 umount_dir /overlay/merged/package
 rmdir /overlay/merged/package
-message "Umounting /overlay/merged..."
-umount_dir /overlay/merged
-find /overlay/package -type c -exec rm -rf {} \;
-if [ "$APPDIR" == "/overlay/package" ]; then
-    if [ -n "$AUTOMATIC" ]; then
-        APPDIR="$APPDIR" make
-    else
+umount_dir /overlay/merged/proc
+umount_dir /overlay/merged/dev/pts
+umount_dir /overlay/merged/dev
+umount_dir /overlay/merged/run
+umount_dir /overlay/merged/tmp
+
+if [ -n "$AUTOMATIC" ]; then
+    APPDIR="$APPDIR" make
+else
+    if [ "$APPDIR" == "/overlay/package" ]; then
+        message "Umounting /overlay/merged..."
+        umount_dir /overlay/merged
+        find /overlay/package -type c -exec rm -rf {} \;
+
         message "Mounting back /overlay/merged with / as /overlay/base..."
         mount -o bind,ro / /overlay/base
         mount -t overlay overlay -o userxattr,lowerdir=/overlay/base,upperdir=/overlay/package,workdir=/overlay/work /overlay/merged
@@ -181,15 +194,20 @@ if [ "$APPDIR" == "/overlay/package" ]; then
         mount --rbind /run /overlay/merged/run
         mount --rbind /proc /overlay/merged/proc
         mount --rbind /tmp /overlay/merged/tmp
+        cd "${PACKAGE}"
         message "Chroot /overlay/package testing point reached"
-        read -p "Package contents are in /overlay/merged. Press any key when ready to proceed " junk
+        interactive_chroot_install testing_package
         umount_dir /overlay/merged/proc
         umount_dir /overlay/merged/dev/pts
         umount_dir /overlay/merged/dev
         umount_dir /overlay/merged/run
         umount_dir /overlay/merged/tmp
-        APPDIR="$APPDIR" /bin/bash --rcfile <(echo "PS1='finalize (package)> '") -i
     fi
+    [ -z "$AUTOMATIC" ] && APPDIR="$APPDIR" /bin/bash --rcfile <(echo "PS1='Set up Makefile (APPDIR=$APPDIR)> '") -i
 fi
+
+message "Umounting /overlay/merged..."
+umount_dir /overlay/merged
 umount_dir /overlay
+rmdir /overlay
 message "Exiting script..."
