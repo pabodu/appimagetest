@@ -14,7 +14,7 @@ CNT_SETUP=( bwrap
 --bind /sys /sys
 --bind /run /run
 --bind /home /home
---tmpfs /tmp
+--bind /tmp /tmp
 )
 
 exec "${CNT_SETUP[@]}" "${EXEC}" "$@"

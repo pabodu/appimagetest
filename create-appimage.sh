@@ -1,5 +1,5 @@
 #!/bin/bash
-#podman run -it --rm --privileged --volume $(pwd):/root debian:trixie
+#podman run -it --rm --privileged --volume $(pwd):/root -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro debian:trixie
 #set -e
 PACKAGE="${1}"
 OVERLAY_TMPFS_SIZE=4G
@@ -62,8 +62,8 @@ mount -t overlay overlay -o userxattr,lowerdir=/overlay/base,upperdir=/overlay/p
 mount --rbind /dev /overlay/merged/dev
 mount --rbind /dev/pts /overlay/merged/dev/pts
 mount --rbind /run /overlay/merged/run
-mount --bind /proc /overlay/merged/proc
-mount -t tmpfs tmpfs /overlay/merged/tmp
+mount --rbind /proc /overlay/merged/proc
+mount --rbind /tmp /overlay/merged/tmp
 message "Starting main installation..."
 cd "${PACKAGE}"
 mkdir /overlay/merged/package
@@ -90,13 +90,13 @@ while true; do
 done
 [ -n "$AUTOMATIC" ] && echo "Using install:" && cat overrides/install
 chroot /overlay/merged /bin/bash /package/overrides/install
+[ -z "$AUTOMATIC" ] && message "Chroot /overlay/merged testing point reached"
+[ -z "$AUTOMATIC" ] && read -p "Press any key when ready to proceed " junk
 umount_dir /overlay/merged/proc
 umount_dir /overlay/merged/dev/pts
 umount_dir /overlay/merged/dev
 umount_dir /overlay/merged/run
 umount_dir /overlay/merged/tmp
-message "Package contents are in /overlay/merged and /overlay/package now"
-message "Need to find out which one to use..."
 cd "${PACKAGE}"
 while true; do
     if [ -f overrides/APPDIR ]; then
@@ -164,15 +164,30 @@ if [ "$APPDIR" == "/overlay/merged" ]; then
     fi
 fi
 cd "${PACKAGE}"
-umount /overlay/merged/package
+umount_dir /overlay/merged/package
 rmdir /overlay/merged/package
+message "Umounting /overlay/merged..."
 umount_dir /overlay/merged
-message "Package contents are in /overlay/package now"
 find /overlay/package -type c -exec rm -rf {} \;
 if [ "$APPDIR" == "/overlay/package" ]; then
     if [ -n "$AUTOMATIC" ]; then
         APPDIR="$APPDIR" make
     else
+        message "Mounting back /overlay/merged with / as /overlay/base..."
+        mount -o bind,ro / /overlay/base
+        mount -t overlay overlay -o userxattr,lowerdir=/overlay/base,upperdir=/overlay/package,workdir=/overlay/work /overlay/merged
+        mount --rbind /dev /overlay/merged/dev
+        mount --rbind /dev/pts /overlay/merged/dev/pts
+        mount --rbind /run /overlay/merged/run
+        mount --rbind /proc /overlay/merged/proc
+        mount --rbind /tmp /overlay/merged/tmp
+        message "Chroot /overlay/package testing point reached"
+        read -p "Package contents are in /overlay/merged. Press any key when ready to proceed " junk
+        umount_dir /overlay/merged/proc
+        umount_dir /overlay/merged/dev/pts
+        umount_dir /overlay/merged/dev
+        umount_dir /overlay/merged/run
+        umount_dir /overlay/merged/tmp
         APPDIR="$APPDIR" /bin/bash --rcfile <(echo "PS1='finalize (package)> '") -i
     fi
 fi
